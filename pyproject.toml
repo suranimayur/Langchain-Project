@@ -8,11 +8,13 @@ dependencies = [
     "black>=26.3.1",
     "ipykernel>=7.2.0",
     "isort>=8.0.1",
+    "kaggle>=2.0.0",
     "langchain>=1.2.13",
     "langchain-ollama>=1.0.1",
     "langchain-openai>=1.1.12",
     "langchain-tavily>=0.2.17",
     "langsmith[claude-agent-sdk]>=0.7.23",
+    "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
     "tavily>=1.1.0",
 ]
