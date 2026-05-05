@@ -1,56 +1,95 @@
-from dotenv import  load_dotenv
+
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+
+import os
+
+from dotenv import load_dotenv
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+
 load_dotenv()
-import os 
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
-from langchain.tools import tool
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.agents import create_agent
-from tavily import TavilyClient
-from langchain_tavily import TavilySearch
-from pydantic import BaseModel, Field
-from typing  import List
+
+print("Initializing components...")
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+llm = ChatOpenAI(model="gpt-5-nano")
+
+vectorstore = PineconeVectorStore(
+    index_name=os.environ["INDEX_NAME"], embedding=embeddings
+)
+
+retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+prompt_template = ChatPromptTemplate.from_template(
+    """Answer the question based only on the following context:
+
+{context}
+
+Question: {question}
+
+Provide a detailed answer:"""
+)
 
 
-class Source(BaseModel):
-    """ Schema for source used by agent"""
-
-    url:str = Field(description="The URL of source ")
-
-class Agentresponse(BaseModel):
-    """ Schema for agent response with answer and sources list """
-
-    answer:str = Field(description="The agents answer to the query")
-    sources:List[Source] = Field(default_factory=list,description="The list of sources used to generate the answer")
+def format_docs(docs):
+    """Format retrieved documents into a single string."""
+    return "\n\n".join(doc.page_content for doc in docs)
 
 
-
-tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-@tool
-def search(query:str) -> str    :
-    """Tool that search over internet
-    Args:
-        Query: The query to be search for
-
-    Returns: The search result     
+def retrieval_chain_without_lcel(query: str):
     """
-    
-    print(f"Searching for {query}")
-    response = tavily_client.search(query=query)
-    return response['results'][0]['content']    
+    Simple retrieval chain without LCEL.
+    Manually retrieves documents, formats them, and generates a response.
 
-llm = ChatOllama(model="gemma4:e4b")
-tools = [TavilySearch()]
+    Limitations:
+    - Manual step-by-step execution
+    - No built-in streaming support
+    - No async support without additional code
+    - Harder to compose with other chains
+    - More verbose and error-prone
+    """
+    # Step 1: Retrieve relevant documents
+    docs = retriever.invoke(query)
 
-agent = create_agent(model=llm,tools=tools,response_format=Agentresponse)
+    # Step 2: Format documents into context string
+    context = format_docs(docs)
 
-def main():
-    print("Hello from build-ai-agents-with-langchain!")
-    results = agent.invoke({"messages":HumanMessage(content='What is weather in Pune now ?? Prepare professional report')})
-    print(results['messages'][-1].content)
+    # Step 3: Format the prompt with context and question
+    messages = prompt_template.format_messages(context=context, question=query)
+
+    # Step 4: Invoke LLM with the formatted messages
+    response = llm.invoke(messages)
+
+    # Step 5: Return the content
+    return response.content
 
 
 if __name__ == "__main__":
-    main()
+    print("Retrieving...")
+
+    # Query
+    query = "what is Pinecone in machine learning?"
+
+    # ========================================================================
+    # Option 0: Raw invocation without RAG
+    # ========================================================================
+    print("\n" + "=" * 70)
+    print("IMPLEMENTATION 0: Raw LLM Invocation (No RAG)")
+    print("=" * 70)
+    result_raw = llm.invoke([HumanMessage(content=query)])
+    print("\nAnswer:")
+    print(result_raw.content)
+
+    # ========================================================================
+    # Option 1: Use implementation WITHOUT LCEL
+    # ========================================================================
+    print("\n" + "=" * 70)
+    print("IMPLEMENTATION 1: Without LCEL")
+    print("=" * 70)
+    result_without_lcel = retrieval_chain_without_lcel(query)
+    print("\nAnswer:")
+    print(result_without_lcel)
